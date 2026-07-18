@@ -1,0 +1,7 @@
+DROP TABLE IF EXISTS verifications;
+DROP TABLE IF EXISTS billing_events;
+DROP TABLE IF EXISTS invoice_versions;
+DROP TABLE IF EXISTS invoices;
+DROP TABLE IF EXISTS users;
+DROP TABLE IF EXISTS partners;
+DROP TABLE IF EXISTS companies;

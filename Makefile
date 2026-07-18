@@ -1,4 +1,4 @@
-.PHONY: up down migrate seed build
+.PHONY: up down migrate migrate-down seed build
 
 # Start all services in detached mode
 up:
@@ -8,13 +8,26 @@ up:
 down:
 	docker compose -f deploy/docker-compose.yml down -v
 
-# Run database migrations (stub — will use golang-migrate in step 2)
+# Run database migrations (requires Postgres to be running via `make up`)
 migrate:
-	@echo "TODO: run golang-migrate against DATABASE_URL"
+	@docker run --rm \
+		-v $(CURDIR)/internal/db/migrations:/migrations \
+		migrate/migrate \
+		-path=/migrations \
+		-database "postgres://provenn:provenn@host.docker.internal:5432/provenn?sslmode=disable" up
+
+# Roll back all migrations
+migrate-down:
+	@docker run --rm \
+		-v $(CURDIR)/internal/db/migrations:/migrations \
+		migrate/migrate \
+		-path=/migrations \
+		-database "postgres://provenn:provenn@host.docker.internal:5432/provenn?sslmode=disable" down -all
 
 # Seed the database with demo data (stub — will be implemented in step 12)
 seed:
 	@echo "TODO: run seed script"
+
 
 # Build Go binaries locally
 build:
