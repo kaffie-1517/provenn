@@ -126,7 +126,7 @@ func main() {
 
 	// ── Public invoice lookup (no auth) ─────────────────────────────────
 	r.Get("/api/v1/invoices/{referenceCode}", invoiceHandlers.GetStatus)
-	r.Get("/api/v1/invoices/{referenceCode}/download", placeholderHandler("download invoice"))
+	r.Get("/api/v1/invoices/{referenceCode}/download", invoiceHandlers.Download)
 
 	// ── JWT-protected routes ────────────────────────────────────────────
 	r.Group(func(r chi.Router) {

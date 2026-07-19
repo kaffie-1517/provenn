@@ -2,6 +2,7 @@ package invoice
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"time"
@@ -133,6 +134,62 @@ func (h *Handlers) GetStatus(w http.ResponseWriter, r *http.Request) {
 		"currency":       inv.Currency,
 		"vendor_name":    inv.VendorName,
 	})
+}
+
+// Download handles GET /api/v1/invoices/{referenceCode}/download.
+// LLD §4.2: look up invoice + latest version, insert billing event (idempotent),
+// stream PDF from storage. No auth — the reference code is the capability token.
+func (h *Handlers) Download(w http.ResponseWriter, r *http.Request) {
+	refCode := chi.URLParam(r, "referenceCode")
+	if refCode == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "reference code required"})
+		return
+	}
+
+	ctx := r.Context()
+
+	// 1. Look up the invoice.
+	inv, err := h.Service.Store.GetInvoiceByReferenceCode(ctx, refCode)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "invoice not found"})
+		return
+	}
+
+	// 2. If not ready, return 202 Accepted.
+	if inv.Status != "ready" {
+		writeJSON(w, http.StatusAccepted, map[string]any{
+			"status":  inv.Status,
+			"message": "invoice is still processing, try again shortly",
+		})
+		return
+	}
+
+	// 3. Get the latest invoice_versions row.
+	version, err := h.Service.Store.GetLatestInvoiceVersion(ctx, inv.ID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "version not found"})
+		return
+	}
+
+	// 4. Insert billing event (idempotent — ON CONFLICT DO NOTHING).
+	_, _, err = h.Service.Store.CreateBillingEvent(ctx, inv.ID, inv.AmountCents)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "billing error"})
+		return
+	}
+
+	// 5. Stream the file from storage.
+	obj, err := h.Service.Storage.Get(ctx, version.StorageKey)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "file not found in storage"})
+		return
+	}
+	defer obj.Close()
+
+	w.Header().Set("Content-Type", "application/pdf")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="invoice-%s.pdf"`, refCode))
+	w.WriteHeader(http.StatusOK)
+	io.Copy(w, obj)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
