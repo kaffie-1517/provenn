@@ -2,8 +2,12 @@ package verification
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 
 	"github.com/kaffie-1517/provenn/internal/auth"
 	"github.com/kaffie-1517/provenn/internal/db"
@@ -135,6 +139,72 @@ func (h *Handlers) List(w http.ResponseWriter, r *http.Request) {
 		"verifications": verifications,
 		"total":         len(verifications),
 	})
+}
+
+// Approve handles PATCH /api/v1/verifications/{id}/approve (role=company_admin).
+// LLD §4.4: sets approval_status + approved_by + approved_at. Never touches result.
+// Scoped to the admin's company_id — can't approve another company's verification.
+func (h *Handlers) Approve(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	// LLD §6: company_id from the authenticated principal only.
+	adminID, err := auth.UserIDFromContext(ctx)
+	if err != nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		return
+	}
+	companyID, err := auth.CompanyIDFromContext(ctx)
+	if err != nil {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "no company_id in token"})
+		return
+	}
+
+	// Parse verification ID from URL.
+	verifIDStr := chi.URLParam(r, "id")
+	verifID, err := uuid.Parse(verifIDStr)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid verification id"})
+		return
+	}
+
+	// Parse decision from body.
+	var body struct {
+		Decision string `json:"decision"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+		return
+	}
+	if body.Decision != "approved" && body.Decision != "rejected" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "decision must be 'approved' or 'rejected'"})
+		return
+	}
+
+	// Fetch the verification and enforce company scoping.
+	v, err := h.Service.Store.GetVerificationByID(ctx, verifID)
+	if err != nil {
+		if errors.Is(err, db.ErrNotFound) {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "verification not found"})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to fetch verification"})
+		return
+	}
+
+	// KEY CHECK: the verification must belong to the admin's company.
+	if v.CompanyID != companyID {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "verification does not belong to your company"})
+		return
+	}
+
+	// Update the approval — never touches result (LLD §4.4 step 3).
+	updated, err := h.Service.Store.UpdateVerificationApproval(ctx, verifID, body.Decision, adminID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to update approval"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, updated)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

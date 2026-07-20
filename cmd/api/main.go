@@ -159,7 +159,7 @@ func main() {
 		r.With(auth.RequireRole("employee", "company_admin")).Get("/api/v1/verifications", verifHandlers.List)
 
 		// Company admin: approve + export
-		r.With(auth.RequireRole("company_admin")).Patch("/api/v1/verifications/{id}/approve", placeholderHandler("approve verification"))
+		r.With(auth.RequireRole("company_admin")).Patch("/api/v1/verifications/{id}/approve", verifHandlers.Approve)
 		r.With(auth.RequireRole("company_admin")).Get("/api/v1/verifications/export", placeholderHandler("export verifications"))
 
 		// Platform admin
