@@ -20,6 +20,7 @@ import (
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 	"github.com/riverqueue/river/rivermigrate"
 
+	"github.com/kaffie-1517/provenn/internal/admin"
 	"github.com/kaffie-1517/provenn/internal/auth"
 	"github.com/kaffie-1517/provenn/internal/db"
 	"github.com/kaffie-1517/provenn/internal/invoice"
@@ -116,6 +117,10 @@ func main() {
 	}
 	verifHandlers := &verification.Handlers{Service: verifSvc}
 
+	// ── Admin (platform_admin cross-tenant queries — LLD §6) ────────────
+	adminStore := admin.NewStore(pool)
+	adminHandlers := admin.NewHandlers(adminStore)
+
 	// ── Router ──────────────────────────────────────────────────────────
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
@@ -162,9 +167,9 @@ func main() {
 		r.With(auth.RequireRole("company_admin")).Patch("/api/v1/verifications/{id}/approve", verifHandlers.Approve)
 		r.With(auth.RequireRole("company_admin")).Get("/api/v1/verifications/export", verifHandlers.Export)
 
-		// Platform admin
-		r.With(auth.RequireRole("platform_admin")).Get("/api/v1/admin/partners", placeholderHandler("list partners"))
-		r.With(auth.RequireRole("platform_admin")).Get("/api/v1/admin/companies", placeholderHandler("list companies"))
+		// Platform admin — dedicated admin package per LLD §6
+		r.With(auth.RequireRole("platform_admin")).Get("/api/v1/admin/partners", adminHandlers.ListPartners)
+		r.With(auth.RequireRole("platform_admin")).Get("/api/v1/admin/companies", adminHandlers.ListCompanies)
 	})
 
 	// ── Partner API-key routes ──────────────────────────────────────────
