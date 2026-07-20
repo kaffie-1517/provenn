@@ -3,11 +3,13 @@ package verification
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/xuri/excelize/v2"
 
 	"github.com/kaffie-1517/provenn/internal/auth"
 	"github.com/kaffie-1517/provenn/internal/db"
@@ -205,6 +207,87 @@ func (h *Handlers) Approve(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, updated)
+}
+
+// Export handles GET /api/v1/verifications/export (role=company_admin).
+// LLD §4.5: streams an .xlsx containing only approval_status='approved' rows
+// for the caller's company. Don't write to disk — stream directly.
+func (h *Handlers) Export(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	companyID, err := auth.CompanyIDFromContext(ctx)
+	if err != nil {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "no company_id in token"})
+		return
+	}
+
+	rows, err := h.Service.Store.ListApprovedForExport(ctx, companyID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to query export data"})
+		return
+	}
+
+	// Build the .xlsx in memory and stream it.
+	f := excelize.NewFile()
+	defer f.Close()
+
+	sheet := "Approved Verifications"
+	f.SetSheetName("Sheet1", sheet)
+
+	// Header row.
+	headers := []string{
+		"Employee Email", "Vendor", "Amount", "Currency",
+		"Invoice Date", "Result", "Approved By", "Approved At",
+	}
+	for i, h := range headers {
+		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
+		f.SetCellValue(sheet, cell, h)
+	}
+
+	// Style the header row.
+	headerStyle, _ := f.NewStyle(&excelize.Style{
+		Font: &excelize.Font{Bold: true},
+		Fill: excelize.Fill{Type: "pattern", Color: []string{"#E0E7FF"}, Pattern: 1},
+	})
+	f.SetRowStyle(sheet, 1, 1, headerStyle)
+
+	// Data rows.
+	for i, row := range rows {
+		rowNum := i + 2
+		amount := fmt.Sprintf("%.2f", float64(row.AmountCents)/100)
+
+		vals := []any{
+			row.EmployeeEmail,
+			row.VendorName,
+			amount,
+			row.Currency,
+			row.InvoiceDate.Format("2006-01-02"),
+			row.Result,
+			row.ApprovedByEmail,
+			row.ApprovedAt.Format("2006-01-02 15:04:05"),
+		}
+
+		for j, v := range vals {
+			cell, _ := excelize.CoordinatesToCellName(j+1, rowNum)
+			f.SetCellValue(sheet, cell, v)
+		}
+	}
+
+	// Auto-width columns.
+	for i := range headers {
+		col, _ := excelize.ColumnNumberToName(i + 1)
+		f.SetColWidth(sheet, col, col, 20)
+	}
+
+	// Stream the response.
+	w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+	w.Header().Set("Content-Disposition", "attachment; filename=approved_verifications.xlsx")
+	w.WriteHeader(http.StatusOK)
+
+	if _, err := f.WriteTo(w); err != nil {
+		// Too late to change the status code, just log.
+		fmt.Printf("export: write error: %v\n", err)
+	}
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

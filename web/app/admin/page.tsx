@@ -28,6 +28,7 @@ export default function AdminPage() {
   const [activeTab, setActiveTab] = useState<FilterTab>("pending");
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [exporting, setExporting] = useState(false);
 
   const apiBase =
     process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
@@ -125,6 +126,33 @@ export default function AdminPage() {
     return <span className={`${styles.badge} ${cls}`}>{s}</span>;
   }
 
+  async function handleExport() {
+    if (!token) return;
+    setExporting(true);
+    try {
+      const res = await fetch(`${apiBase}/api/v1/verifications/export`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        setError("Export failed");
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "approved_verifications.xlsx";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch {
+      setError("Export failed");
+    } finally {
+      setExporting(false);
+    }
+  }
+
   if (!token) return null;
 
   return (
@@ -135,6 +163,13 @@ export default function AdminPage() {
           <p className={styles.subtitle}>
             Review and approve employee invoice submissions
           </p>
+          <button
+            className={styles.exportButton}
+            onClick={handleExport}
+            disabled={exporting}
+          >
+            {exporting ? "Exporting…" : "⬇ Export Approved (.xlsx)"}
+          </button>
         </div>
 
         {error && <div className={styles.error}>{error}</div>}

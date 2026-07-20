@@ -34,6 +34,29 @@
   margin: 0;
 }
 
+.exportButton {
+  margin-top: 1rem;
+  padding: 0.6rem 1.25rem;
+  background: rgba(99, 102, 241, 0.12);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  border-radius: 8px;
+  color: #818cf8;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.exportButton:hover:not(:disabled) {
+  background: rgba(99, 102, 241, 0.2);
+  border-color: rgba(99, 102, 241, 0.5);
+}
+
+.exportButton:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 /* ── Error ───────────────────────────────────────────────────────────── */
 .error {
   padding: 0.75rem 1rem;
