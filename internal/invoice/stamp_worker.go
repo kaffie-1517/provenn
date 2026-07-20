@@ -57,9 +57,10 @@ func (w *StampAndHashWorker) Work(ctx context.Context, job *river.Job[StampAndHa
 	// 3. Stamp QR code + reference code text into PDF footer.
 	stamped, err := stampPDF(rawBytes, inv.ReferenceCode)
 	if err != nil {
-		// If stamping fails, use the raw PDF as-is (graceful degradation for the demo).
-		slog.Warn("stamp_and_hash: PDF stamping failed, using raw PDF", "error", err)
-		stamped = rawBytes
+		// If stamping fails, use the raw PDF but inject the ref code as a
+		// PDF comment so text extraction can still find it.
+		slog.Warn("stamp_and_hash: PDF stamping failed, injecting ref code as comment", "error", err)
+		stamped = append(rawBytes, []byte(fmt.Sprintf("\n%% REF: %s\n", inv.ReferenceCode))...)
 	}
 
 	// 4. Compute SHA-256 over the final bytes.

@@ -24,6 +24,7 @@ import (
 	"github.com/kaffie-1517/provenn/internal/db"
 	"github.com/kaffie-1517/provenn/internal/invoice"
 	"github.com/kaffie-1517/provenn/internal/storage"
+	"github.com/kaffie-1517/provenn/internal/verification"
 )
 
 func main() {
@@ -49,17 +50,27 @@ func main() {
 	}
 	slog.Info("connected to database")
 
-	// ── River migrations (idempotent) ───────────────────────────────────
-	riverMigrator, err := rivermigrate.New(riverpgxv5.New(pool), nil)
-	if err != nil {
-		slog.Error("river migrator", "error", err)
-		os.Exit(1)
-	}
-	if _, err := riverMigrator.Migrate(ctx, rivermigrate.DirectionUp, nil); err != nil {
-		// Tolerate duplicate-key errors from concurrent API/worker startup.
-		if strings.Contains(err.Error(), "duplicate key") {
-			slog.Warn("river migration: already applied (concurrent startup)", "error", err)
-		} else {
+	// ── River migrations (with advisory lock to avoid race) ────────────
+	for attempt := 1; attempt <= 3; attempt++ {
+		// Acquire an advisory lock so only one process migrates at a time.
+		_, _ = pool.Exec(ctx, "SELECT pg_advisory_lock(42)")
+		riverMigrator, err := rivermigrate.New(riverpgxv5.New(pool), nil)
+		if err != nil {
+			_, _ = pool.Exec(ctx, "SELECT pg_advisory_unlock(42)")
+			slog.Error("river migrator", "error", err)
+			os.Exit(1)
+		}
+		_, err = riverMigrator.Migrate(ctx, rivermigrate.DirectionUp, nil)
+		_, _ = pool.Exec(ctx, "SELECT pg_advisory_unlock(42)")
+		if err == nil {
+			break
+		}
+		if strings.Contains(err.Error(), "duplicate key") && attempt < 3 {
+			slog.Warn("river migration: race detected, retrying", "attempt", attempt)
+			time.Sleep(time.Duration(attempt) * time.Second)
+			continue
+		}
+		if err != nil {
 			slog.Error("river migration", "error", err)
 			os.Exit(1)
 		}
@@ -99,6 +110,12 @@ func main() {
 		JWTSecret: jwtSecret,
 	}
 
+	verifSvc := &verification.Service{
+		Store:   store,
+		Storage: stor,
+	}
+	verifHandlers := &verification.Handlers{Service: verifSvc}
+
 	// ── Router ──────────────────────────────────────────────────────────
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
@@ -136,10 +153,10 @@ func main() {
 		r.With(auth.RequireRole("provider")).Post("/api/v1/invoices", invoiceHandlers.CreateFromProvider)
 
 		// Employee: submit verification
-		r.With(auth.RequireRole("employee")).Post("/api/v1/verifications", placeholderHandler("submit verification"))
+		r.With(auth.RequireRole("employee")).Post("/api/v1/verifications", verifHandlers.Submit)
 
 		// Employee + company_admin: list verifications
-		r.With(auth.RequireRole("employee", "company_admin")).Get("/api/v1/verifications", placeholderHandler("list verifications"))
+		r.With(auth.RequireRole("employee", "company_admin")).Get("/api/v1/verifications", verifHandlers.List)
 
 		// Company admin: approve + export
 		r.With(auth.RequireRole("company_admin")).Patch("/api/v1/verifications/{id}/approve", placeholderHandler("approve verification"))

@@ -7,6 +7,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
@@ -39,16 +40,26 @@ func main() {
 	}
 	slog.Info("connected to database")
 
-	// ── River migrations (idempotent) ───────────────────────────────────
-	riverMigrator, err := rivermigrate.New(riverpgxv5.New(pool), nil)
-	if err != nil {
-		slog.Error("river migrator", "error", err)
-		os.Exit(1)
-	}
-	if _, err := riverMigrator.Migrate(ctx, rivermigrate.DirectionUp, nil); err != nil {
-		if strings.Contains(err.Error(), "duplicate key") {
-			slog.Warn("river migration: already applied (concurrent startup)", "error", err)
-		} else {
+	// ── River migrations (with advisory lock to avoid race) ────────────
+	for attempt := 1; attempt <= 3; attempt++ {
+		_, _ = pool.Exec(ctx, "SELECT pg_advisory_lock(42)")
+		riverMigrator, err := rivermigrate.New(riverpgxv5.New(pool), nil)
+		if err != nil {
+			_, _ = pool.Exec(ctx, "SELECT pg_advisory_unlock(42)")
+			slog.Error("river migrator", "error", err)
+			os.Exit(1)
+		}
+		_, err = riverMigrator.Migrate(ctx, rivermigrate.DirectionUp, nil)
+		_, _ = pool.Exec(ctx, "SELECT pg_advisory_unlock(42)")
+		if err == nil {
+			break
+		}
+		if strings.Contains(err.Error(), "duplicate key") && attempt < 3 {
+			slog.Warn("river migration: race detected, retrying", "attempt", attempt)
+			time.Sleep(time.Duration(attempt) * time.Second)
+			continue
+		}
+		if err != nil {
 			slog.Error("river migration", "error", err)
 			os.Exit(1)
 		}
