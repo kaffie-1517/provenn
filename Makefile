@@ -24,12 +24,13 @@ migrate-down:
 		-path=/migrations \
 		-database "postgres://provenn:provenn@host.docker.internal:5432/provenn?sslmode=disable" down -all
 
-# Seed the database with demo data (stub — will be implemented in step 12)
+# Seed the database with demo data (LLD §7)
 seed:
-	@echo "TODO: run seed script"
+	@bash scripts/seed.sh
 
 
 # Build Go binaries locally
 build:
 	go build -o api ./cmd/api
 	go build -o worker ./cmd/worker
+

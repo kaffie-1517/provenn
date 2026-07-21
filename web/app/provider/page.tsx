@@ -27,7 +27,7 @@ export default function ProviderPage() {
   const { token, isAuthenticated, user } = useAuth();
 
   const [vendorName, setVendorName] = useState("");
-  const [amountCents, setAmountCents] = useState("");
+  const [amount, setAmount] = useState("");
   const [currency, setCurrency] = useState("INR");
   const [invoiceDate, setInvoiceDate] = useState(
     new Date().toISOString().split("T")[0]
@@ -39,6 +39,7 @@ export default function ProviderPage() {
   // After creation — polling state
   const [result, setResult] = useState<InvoiceResult | null>(null);
   const [status, setStatus] = useState<InvoiceStatus | null>(null);
+  const [hasDownloaded, setHasDownloaded] = useState(false);
 
   // Redirect if not authenticated or not a provider
   useEffect(() => {
@@ -79,6 +80,7 @@ export default function ProviderPage() {
     setLoading(true);
     setResult(null);
     setStatus(null);
+    setHasDownloaded(false);
 
     if (!pdfFile) {
       setError("Please select a PDF file");
@@ -87,9 +89,11 @@ export default function ProviderPage() {
     }
 
     try {
+      const amountInCents = Math.round(parseFloat(amount) * 100).toString();
+
       const formData = new FormData();
       formData.append("pdf", pdfFile);
-      formData.append("amount_cents", amountCents);
+      formData.append("amount_cents", amountInCents);
       formData.append("currency", currency);
       formData.append("vendor_name", vendorName);
       formData.append("invoice_date", invoiceDate);
@@ -165,17 +169,18 @@ export default function ProviderPage() {
 
             <div className={styles.row}>
               <div className={styles.field}>
-                <label htmlFor="amountCents" className={styles.label}>
-                  Amount (cents)
+                <label htmlFor="amount" className={styles.label}>
+                  Amount
                 </label>
                 <input
-                  id="amountCents"
+                  id="amount"
                   type="number"
-                  value={amountCents}
-                  onChange={(e) => setAmountCents(e.target.value)}
+                  step="0.01"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
                   className={styles.input}
-                  placeholder="150000"
-                  min="1"
+                  placeholder="1500.00"
+                  min="0.01"
                   required
                 />
               </div>
@@ -250,6 +255,24 @@ export default function ProviderPage() {
               <p className={styles.pollingNote}>
                 Polling for status updates…
               </p>
+            )}
+
+            {status?.ready && (
+              <div className={styles.row} style={{ marginTop: "1rem" }}>
+                <button
+                  className={styles.button}
+                  disabled={hasDownloaded}
+                  onClick={() => {
+                    setHasDownloaded(true);
+                    window.open(
+                      `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080"}/api/v1/invoices/${result.reference_code}/download`,
+                      "_blank"
+                    );
+                  }}
+                >
+                  {hasDownloaded ? "Downloaded" : "Download PDF"}
+                </button>
+              </div>
             )}
 
             <button

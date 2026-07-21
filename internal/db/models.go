@@ -75,6 +75,12 @@ type Verification struct {
 	ApprovalStatus   string     `json:"approval_status"`
 	ApprovedBy       *uuid.UUID `json:"approved_by"`
 	ApprovedAt       *time.Time `json:"approved_at"`
+
+	// Joined fields for display
+	EmployeeEmail string `json:"employee_email,omitempty"`
+	VendorName    string `json:"vendor_name,omitempty"`
+	AmountCents   int    `json:"amount_cents,omitempty"`
+	Currency      string `json:"currency,omitempty"`
 }
 
 // ── Parameter structs ───────────────────────────────────────────────────────

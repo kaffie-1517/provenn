@@ -16,6 +16,10 @@ interface Verification {
   approval_status: string;
   approved_by: string | null;
   approved_at: string | null;
+  employee_email?: string;
+  vendor_name?: string;
+  amount_cents?: number;
+  currency?: string;
 }
 
 type FilterTab = "all" | "pending" | "approved" | "rejected";
@@ -223,6 +227,31 @@ export default function AdminPage() {
                           {new Date(v.submitted_at).toLocaleString()}
                         </span>
                       </div>
+                      <div className={styles.verifRow}>
+                        <span className={styles.label}>Submitted By</span>
+                        <span className={styles.value}>{v.employee_email || "Unknown"}</span>
+                      </div>
+                      {v.vendor_name ? (
+                        <>
+                          <div className={styles.verifRow}>
+                            <span className={styles.label}>Vendor</span>
+                            <span className={styles.value}>{v.vendor_name}</span>
+                          </div>
+                          <div className={styles.verifRow}>
+                            <span className={styles.label}>Amount</span>
+                            <span className={styles.value}>
+                              {v.amount_cents ? (v.amount_cents / 100).toFixed(2) : "0.00"} {v.currency}
+                            </span>
+                          </div>
+                        </>
+                      ) : (
+                        <div className={styles.verifRow}>
+                          <span className={styles.label}>Invoice Details</span>
+                          <span className={styles.value} style={{ opacity: 0.7, fontStyle: "italic" }}>
+                            Unknown (Not Found)
+                          </span>
+                        </div>
+                      )}
                     </div>
                   </div>
 

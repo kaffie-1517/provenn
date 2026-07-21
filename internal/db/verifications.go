@@ -35,6 +35,34 @@ func scanVerification(row interface{ Scan(dest ...any) error }) (Verification, e
 	return v, nil
 }
 
+const verifJoinCols = `v.id, v.invoice_id, v.company_id, v.submitted_by, v.submitted_at,
+	v.submitted_hash, v.matched_version_id, v.result, v.approval_status, v.approved_by, v.approved_at,
+	u.email, COALESCE(i.vendor_name, ''), COALESCE(i.amount_cents, 0), COALESCE(i.currency, '')`
+
+func scanVerificationWithJoins(row interface{ Scan(dest ...any) error }) (Verification, error) {
+	var v Verification
+	var pgID, pgInvoiceID, pgCompanyID, pgSubmittedBy, pgMatchedVer, pgApprovedBy pgtype.UUID
+
+	err := row.Scan(
+		&pgID, &pgInvoiceID, &pgCompanyID, &pgSubmittedBy, &v.SubmittedAt,
+		&v.SubmittedHash, &pgMatchedVer, &v.Result, &v.ApprovalStatus,
+		&pgApprovedBy, &v.ApprovedAt,
+		&v.EmployeeEmail, &v.VendorName, &v.AmountCents, &v.Currency,
+	)
+	if err != nil {
+		return Verification{}, err
+	}
+
+	v.ID = fromPgUUID(pgID)
+	v.InvoiceID = fromPgNullUUID(pgInvoiceID)
+	v.CompanyID = fromPgUUID(pgCompanyID)
+	v.SubmittedBy = fromPgUUID(pgSubmittedBy)
+	v.MatchedVersionID = fromPgNullUUID(pgMatchedVer)
+	v.ApprovedBy = fromPgNullUUID(pgApprovedBy)
+	return v, nil
+}
+
+
 // CreateVerification inserts a new verification row (approval_status defaults to 'pending').
 func (s *Store) CreateVerification(ctx context.Context, p CreateVerificationParams) (Verification, error) {
 	row := s.pool.QueryRow(ctx,
@@ -72,7 +100,10 @@ func (s *Store) GetVerificationByID(ctx context.Context, id uuid.UUID) (Verifica
 // ListVerificationsByCompany returns verifications scoped to a company,
 // with optional result/approval_status filters and pagination.
 func (s *Store) ListVerificationsByCompany(ctx context.Context, companyID uuid.UUID, f VerificationFilter) ([]Verification, error) {
-	query := `SELECT ` + verifCols + ` FROM verifications WHERE company_id = $1`
+	query := `SELECT ` + verifJoinCols + ` FROM verifications v
+		JOIN users u ON v.submitted_by = u.id
+		LEFT JOIN invoices i ON v.invoice_id = i.id
+		WHERE v.company_id = $1`
 	args := []any{toPgUUID(companyID)}
 	idx := 2
 
@@ -87,7 +118,7 @@ func (s *Store) ListVerificationsByCompany(ctx context.Context, companyID uuid.U
 		idx++
 	}
 
-	query += ` ORDER BY submitted_at DESC`
+	query += ` ORDER BY v.submitted_at DESC`
 
 	if f.Limit > 0 {
 		query += fmt.Sprintf(` LIMIT $%d`, idx)
@@ -100,12 +131,15 @@ func (s *Store) ListVerificationsByCompany(ctx context.Context, companyID uuid.U
 		idx++ //nolint:ineffassign // keep the pattern consistent
 	}
 
-	return s.queryVerifications(ctx, query, args)
+	return s.queryVerificationsWithJoins(ctx, query, args)
 }
 
 // ListVerificationsByUser returns only the calling employee's own submissions.
 func (s *Store) ListVerificationsByUser(ctx context.Context, userID uuid.UUID, f VerificationFilter) ([]Verification, error) {
-	query := `SELECT ` + verifCols + ` FROM verifications WHERE submitted_by = $1`
+	query := `SELECT ` + verifJoinCols + ` FROM verifications v
+		JOIN users u ON v.submitted_by = u.id
+		LEFT JOIN invoices i ON v.invoice_id = i.id
+		WHERE v.submitted_by = $1`
 	args := []any{toPgUUID(userID)}
 	idx := 2
 
@@ -120,7 +154,7 @@ func (s *Store) ListVerificationsByUser(ctx context.Context, userID uuid.UUID, f
 		idx++
 	}
 
-	query += ` ORDER BY submitted_at DESC`
+	query += ` ORDER BY v.submitted_at DESC`
 
 	if f.Limit > 0 {
 		query += fmt.Sprintf(` LIMIT $%d`, idx)
@@ -133,7 +167,7 @@ func (s *Store) ListVerificationsByUser(ctx context.Context, userID uuid.UUID, f
 		idx++ //nolint:ineffassign
 	}
 
-	return s.queryVerifications(ctx, query, args)
+	return s.queryVerificationsWithJoins(ctx, query, args)
 }
 
 // UpdateVerificationApproval sets the approval decision. This never touches
@@ -209,6 +243,24 @@ func (s *Store) queryVerifications(ctx context.Context, query string, args []any
 	var out []Verification
 	for rows.Next() {
 		v, err := scanVerification(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan verification: %w", err)
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) queryVerificationsWithJoins(ctx context.Context, query string, args []any) ([]Verification, error) {
+	rows, err := s.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query verifications: %w", err)
+	}
+	defer rows.Close()
+
+	var out []Verification
+	for rows.Next() {
+		v, err := scanVerificationWithJoins(rows)
 		if err != nil {
 			return nil, fmt.Errorf("scan verification: %w", err)
 		}

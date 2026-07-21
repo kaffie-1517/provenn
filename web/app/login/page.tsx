@@ -36,7 +36,17 @@ export default function LoginPage() {
         body: { email, password },
       });
       login(data.token, data.user);
-      router.push("/");
+      
+      // Role-based routing
+      if (data.user.role === "company_admin") {
+        router.push("/admin");
+      } else if (data.user.role === "platform_admin") {
+        router.push("/console");
+      } else if (data.user.role === "provider") {
+        router.push("/provider");
+      } else {
+        router.push("/");
+      }
     } catch (err) {
       if (err instanceof ApiError) {
         setError(err.message);

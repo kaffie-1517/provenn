@@ -54,11 +54,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const next = { token, user };
     setState(next);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+    localStorage.setItem("provenn_token", token);
   }, []);
 
   const logout = useCallback(() => {
     setState({ token: null, user: null });
     localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem("provenn_token");
   }, []);
 
   return (
