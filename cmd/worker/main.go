@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -10,12 +11,15 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 	"github.com/riverqueue/river/rivermigrate"
+	"github.com/riverqueue/river/rivertype"
 
 	"github.com/kaffie-1517/provenn/internal/db"
 	"github.com/kaffie-1517/provenn/internal/invoice"
+	"github.com/kaffie-1517/provenn/internal/observability"
 	"github.com/kaffie-1517/provenn/internal/storage"
 )
 
@@ -89,6 +93,10 @@ func main() {
 			river.QueueDefault: {MaxWorkers: 5},
 		},
 		Workers: workers,
+		JobTimeout: 5 * time.Minute,
+		WorkerMiddleware: []rivertype.WorkerMiddleware{
+			&observability.RiverMiddleware{},
+		},
 	})
 	if err != nil {
 		slog.Error("river client", "error", err)
@@ -101,6 +109,15 @@ func main() {
 		os.Exit(1)
 	}
 	slog.Info("worker started — processing stamp_and_hash jobs")
+
+	// ── Start metrics server ────────────────────────────────────────────
+	go func() {
+		http.Handle("/metrics", promhttp.Handler())
+		slog.Info("worker metrics server listening on :8081")
+		if err := http.ListenAndServe(":8081", nil); err != nil {
+			slog.Error("worker metrics server failed", "error", err)
+		}
+	}()
 
 	// ── Block until signal ──────────────────────────────────────────────
 	done := make(chan os.Signal, 1)

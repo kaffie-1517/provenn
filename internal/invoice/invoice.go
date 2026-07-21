@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/kaffie-1517/provenn/internal/db"
+	"github.com/kaffie-1517/provenn/internal/observability"
 	"github.com/kaffie-1517/provenn/internal/storage"
 	"github.com/riverqueue/river"
 )
@@ -103,6 +104,7 @@ func (s *Service) CreateInvoice(ctx context.Context, p CreateParams) (*CreateRes
 	}
 
 	slog.Info("invoice created", "invoice_id", inv.ID, "ref_code", refCode)
+	observability.InvoicesIssuedTotal.Inc()
 
 	return &CreateResult{
 		InvoiceID:     inv.ID,

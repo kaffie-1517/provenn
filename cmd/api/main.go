@@ -20,10 +20,13 @@ import (
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 	"github.com/riverqueue/river/rivermigrate"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+
 	"github.com/kaffie-1517/provenn/internal/admin"
 	"github.com/kaffie-1517/provenn/internal/auth"
 	"github.com/kaffie-1517/provenn/internal/db"
 	"github.com/kaffie-1517/provenn/internal/invoice"
+	"github.com/kaffie-1517/provenn/internal/observability"
 	"github.com/kaffie-1517/provenn/internal/storage"
 	"github.com/kaffie-1517/provenn/internal/verification"
 )
@@ -135,12 +138,14 @@ func main() {
 		AllowCredentials: true,
 		MaxAge:           300,
 	}))
+	r.Use(observability.Middleware)
 
-	// Health check
+	// Health + metrics
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 	})
+	r.Handle("/metrics", promhttp.Handler())
 
 	// ── Auth routes (public) ────────────────────────────────────────────
 	r.Post("/api/v1/auth/register", authHandlers.Register)

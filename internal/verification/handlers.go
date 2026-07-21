@@ -13,6 +13,7 @@ import (
 
 	"github.com/kaffie-1517/provenn/internal/auth"
 	"github.com/kaffie-1517/provenn/internal/db"
+	"github.com/kaffie-1517/provenn/internal/observability"
 )
 
 // Handlers groups the HTTP handlers for verifications.
@@ -65,6 +66,8 @@ func (h *Handlers) Submit(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "verification failed"})
 		return
 	}
+
+	observability.VerificationsSubmittedTotal.WithLabelValues(result.Verification.Result).Inc()
 
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"verification_id":   result.Verification.ID,
